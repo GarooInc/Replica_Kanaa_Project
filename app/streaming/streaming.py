@@ -4,6 +4,10 @@ import asyncio
 import logging
 from typing import AsyncIterator, List, Dict, Any
 
+# langchain imports
+from langchain_openai import ChatOpenAI
+
+
 from langchain_core.messages import (
     HumanMessage,
     AIMessage,
@@ -18,8 +22,8 @@ from app.streaming.event_handler import (
 )
 
 from app.streaming.tool_execution import execute_tool
-
 from app.utilities.photo_uploader import upload_first_photo_found
+from app.streaming.lazy_loading import bind_tools
 
 
 # CONFIGURACIÓN DE LOGGING
@@ -34,7 +38,6 @@ async def ask_streaming(
     max_iterations: int = 8,
     tools: List[Any] = [],
     enhanced_prompt: str = "", # deberiamos reemplazarlo por una funcion getter más adelante. 
-    base_llm: Any = None
 ) -> AsyncIterator[str]:
     """
     Streaming con flujo ReAct corregido:
@@ -68,8 +71,8 @@ async def ask_streaming(
 
         history.append(HumanMessage(content=question))
         
-        # BIND DEL MODELO Y TOOLS
-        llm = base_llm.bind_tools(tools)
+        # BIND DEL MODELO Y TOOLS (lazy, una sola vez)
+        llm = bind_tools(tools)
 
         # Lista para registrar uso de herramientas
         tool_log: List[Dict[str, Any]] = []
