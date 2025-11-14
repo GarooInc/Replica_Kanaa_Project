@@ -6,8 +6,6 @@ from typing import AsyncIterator, List, Dict, Any
 
 # langchain imports
 from langchain_openai import ChatOpenAI
-
-
 from langchain_core.messages import (
     HumanMessage,
     AIMessage,
@@ -24,19 +22,22 @@ from app.streaming.event_handler import (
 from app.streaming.tool_execution import execute_tool
 from app.utilities.photo_uploader import upload_first_photo_found
 from app.streaming.lazy_loading import bind_tools
+from app.agent_tools.tool_getter import get_agent_tools
+from app.prompt.enhanced_prompt import get_enhanced_prompt
 
 
 # CONFIGURACIÓN DE LOGGING
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+tools = get_agent_tools()
+logger.info(f"Herramientas cargadas: {[t.name for t in tools]}")
 
 # FUNCIÓN PRINCIPAL DE STREAMING
 async def ask_streaming(
     question: str,
     message_history: List[Dict] = [],
     max_iterations: int = 8,
-    tools: List[Any] = [],
     enhanced_prompt: str = "", # deberiamos reemplazarlo por una funcion getter más adelante. 
 ) -> AsyncIterator[str]:
     """
@@ -49,6 +50,9 @@ async def ask_streaming(
 
     try:
         logger.info(f"Starting streaming function for question: {question}")
+
+
+        prompt = get_enhanced_prompt(question, bool(tools))
         
         # VALIDACIÓN BÁSICA
         if not question or not question.strip():
@@ -72,7 +76,7 @@ async def ask_streaming(
         history.append(HumanMessage(content=question))
         
         # BIND DEL MODELO Y TOOLS (lazy, una sola vez)
-        llm = bind_tools(tools)
+        llm = bind_tools(tools) # tool getter. 
 
         # Lista para registrar uso de herramientas
         tool_log: List[Dict[str, Any]] = []
@@ -133,7 +137,6 @@ async def ask_streaming(
                         None
                     )
 
-                    
                     # Si herramienta no existe
                     if selected_tool is None:
                         msg = f"Herramienta '{tool_name}' no encontrada."

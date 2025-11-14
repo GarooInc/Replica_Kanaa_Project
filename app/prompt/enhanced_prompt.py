@@ -1,20 +1,20 @@
 # app/prompt/enhanced_prompt.py
 
 
-def check_for_tools() -> bool:
+def check_for_tools(tools: bool) -> bool:
     """
     Retorna si el agente debe usar herramientas.
     """
     return False
 
-def check_for_fshotexamples() -> bool:
+def check_for_fshotexamples(question:str) -> bool:
     """
     Retorna si el agente debe usar few-shot examples.
     """
     return False
 
 
-def get_enhanced_prompt() -> str:
+def get_enhanced_prompt(question: str, tools: bool) -> str:
     """
     Retorna un prompt mejorado para el agente.
     """
@@ -25,13 +25,13 @@ def get_enhanced_prompt() -> str:
 
     """
 
-    if check_for_tools():
+    if check_for_tools(tools):
         prompt += f"""
         Descripcion de las herramientas disponibles:
         - 
         """
 
-    if check_for_fshotexamples():
+    if check_for_fshotexamples(question):
         prompt += f"""
         Ejemplos de preguntas y respuestas:
         - 

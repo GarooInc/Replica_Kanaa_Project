@@ -13,9 +13,12 @@ import logging
 from langchain_community.vectorstores import FAISS
 from langchain_cohere import CohereEmbeddings
 from langchain.tools.retriever import create_retriever_tool
+from dotenv import load_dotenv
+load_dotenv()  # Carga variables de entorno desde .env si existe
 
 # Configuración
-INDEX_DIR = Path(__file__).parent.parent / "data/hotel_context_faiss_index"
+INDEX_DIR = Path(__file__).parent.parent / "data/hotel_context_faiss_index" # se supone que esta bien
+print(f"🔍 INDEX_DIR establecido en: {INDEX_DIR}")
 CHUNK_STORE_PATH = INDEX_DIR / "chunk_store.json"
 EMBED_MODEL = "embed-multilingual-light-v3.0"
 
@@ -31,7 +34,7 @@ def set_global_retriever(retriever):
     global _hotel_retriever
     _hotel_retriever = retriever
     try:
-        from tools.agent_workflow import get_hotel_context_tool
+        from app.agent_tools.rag_tool import get_hotel_context_tool #ATTENTION
         get_hotel_context_tool()  # fuerza creación de tool si aún no existe
     except Exception as e:
         logger.debug(f"No se pudo inicializar hotel_context_tool desde rag_store: {e}")
@@ -87,3 +90,4 @@ def initialize_hotel_context_tool():
     except Exception as e:
         logger.error(f"❌ Error al inicializar hotel_context_search: {e}")
         return None
+

@@ -25,6 +25,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_cohere import CohereEmbeddings
 
+from dotenv import load_dotenv
+load_dotenv()  # Carga variables de entorno desde .env si existe
+
 # ==========================================================
 # CONFIGURATION
 # ==========================================================

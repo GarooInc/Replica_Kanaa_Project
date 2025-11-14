@@ -3,6 +3,8 @@
 from langchain_openai import ChatOpenAI
 from typing import Any, Optional
 import logging
+from dotenv import load_dotenv
+load_dotenv()  # Carga variables de entorno desde .env si existe
 
 llm = ChatOpenAI(
     model ="gpt-4o",
