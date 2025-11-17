@@ -21,16 +21,17 @@ def lifespan(app: FastAPI):
             retriever = get_retriever(k=5)
             app.state.hotel_retriever = retriever
             set_global_retriever(retriever)
-            logger.info("♻️ Retriever global configurado en lifespan.")
+            logger.info("SUCCESS: Retriever global configurado en lifespan.")
         except Exception as e:
-            logger.error(f"Error al configurar el retriever en lifespan: {e}")
+            logger.error(f"ERROR al configurar el retriever en lifespan: {e}")
+
         yield
     return lifespan_context(app)
 
 app = FastAPI(
-    title="Kaana Agent Streaming API",
-    description="API para el hotel Kaana con streaming real de tokens.",
-    version="2.0.0",
+    title="Itzana Agent Streaming API",
+    description="API para el hotel Itzana con streaming real de tokens.",
+    version="3.0.0",
     lifespan=lifespan
 )
 
@@ -44,18 +45,17 @@ async def update_vector_index(files: List[UploadFile] = File(...)):
         filenames = [f.filename for f in files]
 
         result = index_markdown_contents(file_contents, filenames, rebuild=True)
-        print("✅ Reindexación completada.")
+        logging.info("SUCCESS: Reindexación completada.")
 
         retriever = get_retriever(k=3)
         app.state.hotel_retriever = retriever
         set_global_retriever(retriever)
-        print("♻️ Retriever global actualizado tras reindexar.")
+        logging.info("SUCCESS: Retriever global actualizado tras reindexar.")
 
         return {"message": "Índice reconstruido y retriever actualizado.", "details": result}
 
     except Exception as e:
         return {"error": str(e)}
-
 
 class AskRequest(BaseModel):
     question: str

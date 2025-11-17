@@ -33,10 +33,10 @@ def _init_hotel_context_tool():
             ),
         )
         _retriever_ready = True
-        logging.info("✅ Tool hotel_context_search inicializada correctamente.")
+        logging.info("SUCCESS: Tool hotel_context_search inicializada correctamente.")
         return _hotel_context_tool
     except Exception as e:
-        logging.error(f"❌ Error al inicializar hotel_context_search: {e}")
+        logging.error(f"ERROR al inicializar hotel_context_search: {e}")
         _hotel_context_tool = None
         _retriever_ready = False
         return None

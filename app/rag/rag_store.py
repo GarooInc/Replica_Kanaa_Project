@@ -18,7 +18,6 @@ load_dotenv()  # Carga variables de entorno desde .env si existe
 
 # Configuración
 INDEX_DIR = Path(__file__).parent.parent / "data/hotel_context_faiss_index" # se supone que esta bien
-print(f"🔍 INDEX_DIR establecido en: {INDEX_DIR}")
 CHUNK_STORE_PATH = INDEX_DIR / "chunk_store.json"
 EMBED_MODEL = "embed-multilingual-light-v3.0"
 
@@ -49,7 +48,7 @@ def get_global_retriever():
     if _hotel_retriever is None:
         try:
             _hotel_retriever = load_vectorstore().as_retriever(k=3)
-            logger.info("✅ Retriever global inicializado correctamente.")
+            logger.info("SUCCESS: Retriever global inicializado.")
         except Exception as e:
             logger.error(f"❌ Error al inicializar el retriever global: {e}")
     return _hotel_retriever
@@ -60,7 +59,7 @@ def load_vectorstore():
     if not INDEX_DIR.exists():
         raise FileNotFoundError(f"FAISS index not found at {INDEX_DIR}")
     embeddings = CohereEmbeddings(model=EMBED_MODEL)
-    logger.info("✅ FAISS index cargado correctamente.")
+    logger.info("SUCCESS FAISS index cargado correctamente.")
     return FAISS.load_local(
         str(INDEX_DIR), embeddings, allow_dangerous_deserialization=True
     )
@@ -85,9 +84,9 @@ def initialize_hotel_context_tool():
                 "Busca información sobre Itzana Resorts: servicios, amenidades, políticas, contexto del hotel."
             ),
         )
-        logger.info("✅ Tool hotel_context_search inicializada correctamente.")
+        logger.info("SUCCESS Tool hotel_context_search inicializada correctamente.")
         return tool
     except Exception as e:
-        logger.error(f"❌ Error al inicializar hotel_context_search: {e}")
+        logger.error(f"ERROR al inicializar hotel_context_search: {e}")
         return None
 

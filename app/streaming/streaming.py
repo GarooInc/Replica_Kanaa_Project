@@ -1,11 +1,9 @@
 # app/streaming/streaming.py
 
-import asyncio
 import logging
+import json
 from typing import AsyncIterator, List, Dict, Any
 
-# langchain imports
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import (
     HumanMessage,
     AIMessage,
@@ -13,166 +11,155 @@ from langchain_core.messages import (
     ToolMessage
 )
 
+from app.core.llm_state import LLM
+from app.agent_tools.tool_getter import get_agent_tools
+from app.streaming.lazy_loading import bind_tools
+from app.streaming.tool_execution import execute_tool
+from app.utilities.photo_uploader import upload_first_photo_found
+from app.prompt.enhanced_prompt import get_enhanced_prompt
+
 from app.streaming.event_handler import (
     send_event,
     send_done,
     send_error
 )
 
-from app.streaming.tool_execution import execute_tool
-from app.utilities.photo_uploader import upload_first_photo_found
-from app.streaming.lazy_loading import bind_tools
-from app.agent_tools.tool_getter import get_agent_tools
-from app.prompt.enhanced_prompt import get_enhanced_prompt
-
-
-# CONFIGURACIÓN DE LOGGING
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Tools + LLM (idéntico al original)
 tools = get_agent_tools()
-logger.info(f"Herramientas cargadas: {[t.name for t in tools]}")
+llm_with_tools = bind_tools(tools, force_rebind=False)
+tools_map = {t.name: t for t in tools}
 
-# FUNCIÓN PRINCIPAL DE STREAMING
+
 async def ask_streaming(
     question: str,
     message_history: List[Dict] = [],
-    max_iterations: int = 8,
-    enhanced_prompt: str = "", # deberiamos reemplazarlo por una funcion getter más adelante. 
+    max_iterations: int = 8
 ) -> AsyncIterator[str]:
-    """
-    Streaming con flujo ReAct corregido:
-    - Si no hay tool calls → respuesta final y return
-    - Si hay error → mensaje humano y return
-    - Si llega a max_iterations → respuesta final y return
-    - Usa tools basadas únicamente en `tools` list
-    """
 
     try:
-        logger.info(f"Starting streaming function for question: {question}")
+        logger.info(f"Starting REAL streaming for question: {question[:60]}")
 
-
-        prompt = get_enhanced_prompt(question, bool(tools))
-        
-        # VALIDACIÓN BÁSICA
-        if not question or not question.strip():
-            async for c in send_event("answer", "Por favor, ingresa una pregunta válida."):
+        if not question.strip():
+            async for c in send_event("answer", "Por favor proporciona una pregunta válida."):
                 yield c
             async for c in send_done():
                 yield c
             return
 
-        
-        # CONSTRUIR HISTORIAL
-        history = [SystemMessage(content=enhanced_prompt)]
+        prompt = get_enhanced_prompt(question, bool(tools))
+
+        # =======================
+        # Historia EXACTA original
+        # =======================
+        chat_history = [SystemMessage(content=prompt)]
 
         for msg in message_history:
             if msg.get("role") == "user":
-                history.append(HumanMessage(content=msg.get("content", "")))
+                chat_history.append(HumanMessage(content=msg["content"]))
             elif msg.get("role") in ["agent", "assistant"]:
-                history.append(AIMessage(content=msg.get("content", "")))
+                chat_history.append(AIMessage(content=msg["content"]))
 
+        chat_history.append(HumanMessage(content=question))
 
-        history.append(HumanMessage(content=question))
-        
-        # BIND DEL MODELO Y TOOLS (lazy, una sola vez)
-        llm = bind_tools(tools) # tool getter. 
-
-        # Lista para registrar uso de herramientas
         tool_log: List[Dict[str, Any]] = []
+        url_image = None
 
+        # ========================
         # LOOP PRINCIPAL ReAct
-        for iteration in range(max_iterations): # default 8
+        # ========================
+        for iteration in range(max_iterations):
             logger.info(f"Iteration {iteration+1}/{max_iterations}")
 
             try:
-                # Obtener respuesta del modelo
-                res = llm.invoke(history)
-                tool_calls = getattr(res, "tool_calls", None)
+                # invoke() EXACTO como el agente original
+                response = llm_with_tools.invoke(chat_history)
+                tool_calls = getattr(response, "tool_calls", None)
 
-                
-                # SIN TOOL CALLS → RESPUESTA FINAL
+                # ========================
+                # SIN TOOL CALLS → FINAL
+                # ========================
                 if not tool_calls:
-
-                    # check for images
+                    # Buscar imagen opcional
                     try:
                         url_image = upload_first_photo_found()
-                        # Incluir URL de imagen si existe
-                        url_markdown_format = f"\n![image]({url_image})" if url_image else None
                     except Exception as e:
-                        logger.error(f"Error en manejo de imágenes: {e}")
+                        logger.error(f"Error buscando imágenes: {e}")
 
-                    # Streaming real de la respuesta final
-                    async for chunk in llm.astream(history):
+                    # STREAMING REAL DEL LLM
+                    async for chunk in llm_with_tools.astream(chat_history):
                         if hasattr(chunk, "content") and chunk.content:
                             async for c in send_event("answer", {"content": chunk.content}):
                                 yield c
 
-                    if url_markdown_format: # append photo as additional message
-                        async for c in send_event("answer", {"content": url_markdown_format}):
+                    if url_image:
+                        async for c in send_event("answer", {"content": f"![image]({url_image})"}):
                             yield c
 
-                    # Enviar tool log si existe
                     if tool_log:
                         async for c in send_event("tool_log", tool_log):
                             yield c
 
-                    # Finalizar flujo
-                    async for c in send_done(): # closes stream and connection
+                    async for c in send_done():
                         yield c
                     return
 
-                
+                # ==========================================
                 # HAY TOOL CALLS
-                history.append(res)
+                # ==========================================
+                chat_history.append(response)
 
                 for tool_call in tool_calls:
                     tool_name = tool_call.get("name")
                     tool_args = tool_call.get("args", {})
                     tool_id = tool_call.get("id")
 
-                    # Buscar herramienta por nombre
-                    selected_tool = next(
-                        (t for t in tools if t.name == tool_name),
-                        None
-                    )
+                    # log interno
+                    tool_log.append({
+                        "iteration": iteration + 1,
+                        "tool_name": tool_name,
+                        "tool_args": tool_args
+                    })
 
-                    # Si herramienta no existe
-                    if selected_tool is None:
-                        msg = f"Herramienta '{tool_name}' no encontrada."
-                        history.append(ToolMessage(content=msg, tool_call_id=tool_id))
+                    # Evento SSE: inicio de herramienta
+                    async for c in send_event("tool_usage", f"Iniciando herramienta: {tool_name}"):
+                        yield c
 
-                        async for c in send_event("tool_usage", msg):
+                    # Ejecutar herramienta (igual que antes)
+                    tool = tools_map.get(tool_name)
+
+                    if tool is None:
+                        error_msg = f"Herramienta '{tool_name}' no encontrada"
+                        chat_history.append(ToolMessage(content=error_msg, tool_call_id=tool_id))
+                        async for c in send_event("tool_usage", error_msg):
                             yield c
                         continue
 
-                    
-                    # Ejecutar la herramienta (wrapper)
                     result = await execute_tool(
-                        selected_tool,
+                        tool,
                         tool_name,
                         tool_args,
                         iteration + 1,
                         tool_log
                     )
 
-                    # Agregar resultado al historial
-                    history.append(
+                    # agregar resultado a la historia
+                    chat_history.append(
                         ToolMessage(content=str(result), tool_call_id=tool_id)
                     )
 
-                    # Notificar finalización
+                    # evento SSE: completado
                     async for c in send_event("tool_usage", f"Completado: {tool_name}"):
                         yield c
 
-            
-            # ERROR EN ITERACIÓN → MENSAJE HUMANO Y RETURN
-            except Exception as iteration_error:
-                logger.error(f"Error in iteration {iteration+1}: {iteration_error}")
+            except Exception as err:
+                logger.error(f"Error in iteration: {err}")
 
                 async for c in send_event(
                     "answer",
-                    {"content": "Ha ocurrido un error al procesar tu consulta. Por favor intenta de nuevo."}
+                    {"content": "Ocurrió un error procesando tu consulta."}
                 ):
                     yield c
 
@@ -180,15 +167,14 @@ async def ask_streaming(
                     yield c
                 return
 
-        
-        # ALCANZÓ MÁX IMAGEN ITERACIONES → FORZAR RESPUESTA FINAL
-        logger.warning("Max iterations reached.")
-
-        final_prompt = history + [
-            HumanMessage(content="Por favor proporciona una respuesta final basada en toda la información disponible.")
+        # ================================
+        # LÍMITE DE ITERACIONES
+        # ================================
+        final_prompt = chat_history + [
+            HumanMessage(content="Proporciona una respuesta final basada en todo lo anterior.")
         ]
 
-        async for chunk in llm.astream(final_prompt):
+        async for chunk in llm_with_tools.astream(final_prompt):
             if hasattr(chunk, "content") and chunk.content:
                 async for c in send_event("answer", {"content": chunk.content}):
                     yield c
@@ -199,20 +185,15 @@ async def ask_streaming(
 
         async for c in send_done():
             yield c
-        return
 
-    
-    # ERROR GLOBAL → MENSAJE HUMANO
-    except Exception as e:
-        logger.error(f"Critical error: {e}")
+    except Exception as critical:
+        logger.error(f"Critical error: {critical}")
 
         async for c in send_event(
             "answer",
-            {"content": "Ha ocurrido un error inesperado. Por favor intenta nuevamente."}
+            {"content": "Error crítico inesperado. Intenta nuevamente."}
         ):
             yield c
 
         async for c in send_done():
             yield c
-
-        return

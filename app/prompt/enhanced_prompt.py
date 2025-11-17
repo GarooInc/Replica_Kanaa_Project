@@ -1,5 +1,8 @@
 # app/prompt/enhanced_prompt.py
 
+from app.fshot.few_shot_selector import get_example_selector
+import logging
+
 
 def check_for_tools(tools: bool) -> bool:
     """
@@ -7,11 +10,14 @@ def check_for_tools(tools: bool) -> bool:
     """
     return False
 
-def check_for_fshotexamples(question:str) -> bool:
+def get_fshot_ex_from_question(question: str) -> str:
     """
-    Retorna si el agente debe usar few-shot examples.
+    Retorna un ejemplo de few shot basado en la pregunta.
     """
-    return False
+    selector = get_example_selector(3)
+    examples_str = selector.format_examples_for_prompt(question)
+    return examples_str # string formateado. 
+
 
 
 def get_enhanced_prompt(question: str, tools: bool) -> str:
@@ -19,32 +25,37 @@ def get_enhanced_prompt(question: str, tools: bool) -> str:
     Retorna un prompt mejorado para el agente.
     """
     prompt = f"""
+        Eres un analista de datos para Kaana Resorts. Tu funcion es ayudar al usuario a responder preguntas sobre el hotel y sus servicios. 
 
-    Eres un asistente inteligente diseñado para responder preguntas de usuarios de manera precisa. 
-    Trabajas para Kaana Resorts, una luxury resort de Belice famosa por su belleza natural y servicios exclusivos.
+        Flujo de trabajo:
+        1. Analiza cuidadosamente la pregunta del usuario. Decide que herramientas usaras. 
+        2. Si decides usar herramientas, selecciona las mas apropiadas para responder la pregunta.
+        3. Si no usas herramientas, responde directamente a la pregunta.
 
-    """
-
-    if check_for_tools(tools):
-        prompt += f"""
-        Descripcion de las herramientas disponibles:
-        - 
-        """
-
-    if check_for_fshotexamples(question):
-        prompt += f"""
-        Ejemplos de preguntas y respuestas:
-        - 
-        """
-
-    prompt += f"""
-    IMPORTANTE:
-    - Responde en un formato markdown. 
-    - Nunca incluyas codigo o formulas en tu respuesta. 
-    - No inventes informacion, si no sabes la respuesta, di que no lo sabes o devuelve una pregunta para etender mejor la consulta.
-    - Responde en el mismo idioma en que se te pregunto.
-    - Termina con un saludo cordial y una invitacion a preguntar cualquier otra cosa.
+            
     """
     
+    """ # -> Esto aun no se ha implementado. 
+    try:
+        examples = get_fshot_ex_from_question(question)
+        if examples:
+            prompt += "\n" + examples + "\n"
+            #logging.info(f"Few shot examples añadidos al prompt.")
+            #logging.info(f"Few shot examples: {examples}")
+    except Exception as e:
+        print(f"Error obteniendo few shot examples: {e}")
+    """
 
+    prompt += """
+
+        Recuerda:
+        - Nunca inventes informacion. 
+        - Puedes devolver una pregunta si crees que te falta informacion para poder responderla. 
+        - Invita al usuario a proporcionar mas detalles si es necesario.
+        - Al responder la pregunta, invita al usuario a preguntar cualquier otra cosa relacionada con Kaana Resorts.
+
+
+
+    """
+    
     return prompt
